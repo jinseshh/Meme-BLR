@@ -1,0 +1,111 @@
+import "@stdlib/deploy";
+
+contract BlankContract with Deployable {
+    // State variables
+    users: (Address => User);            // Registered users mapped by their addresses
+    communities: (Int => Community);     // Communities mapped by their IDs
+    nextCommunityId: Int;              // Counter for unique community IDs
+
+    // Structs for users, communities, and memberships
+    struct User {
+        telegramId: String;                  // User's Telegram ID
+        joinedCommunity: JoinedCommunity;   // Community membership details
+    }
+
+    struct JoinedCommunity {
+        communityId: Int;                   // ID of the joined community
+        joinDate: Seconds;                   // Date joined (Unix timestamp)
+        tier: Int;                           // Membership tier (1 to 4)
+    }
+
+    struct Community {
+        creator: Address;                    // Address of the community creator
+        creationDate: Seconds;               // Community creation date (Unix timestamp)
+        tokenSymbol: String;                // Token symbol
+        tokenBio: String;                   // Token description
+        holders: (Address => Gram);        // Mapping of addresses to token balances
+    }
+
+    // Constructor (initialization)
+    init() {
+        nextCommunityId = 1;
+    }
+
+    // Register a new user
+    public fun registerUser(telegramId: String) {
+        require(!users.exists(caller), "User already registered.");
+        users[caller] = User(telegramId, JoinedCommunity(0, 0, 0));
+        log("User registered successfully.");
+    }
+
+    // Create a new community
+    public fun createCommunity(tokenSymbol: String, tokenBio: String) {
+        communities[nextCommunityId] = Community(
+            caller,
+            now(),
+            tokenSymbol,
+            tokenBio,
+            (Address => Gram){}
+        );
+        log(format("Community created with ID: {}.", nextCommunityId));
+        nextCommunityId += 1;
+    }
+
+    // Join a community
+    public fun joinCommunity(communityId: Int, tier: Int) {
+        require(users.exists(caller), "User not registered.");
+        require(communities.exists(communityId), "Community does not exist.");
+        require(tier > 0 && tier <= 4, "Invalid tier.");
+
+        var user = users[caller];
+        user.joinedCommunity = JoinedCommunity(communityId, now(), tier);
+        users[caller] = user;
+
+        log(format("User joined community ID: {} successfully.", communityId));
+    }
+
+    // Transfer tokens between users
+    public fun transferTokens(communityId: Int, recipient: Address, amount: Gram) {
+        require(users.exists(caller), "Sender not registered.");
+        require(users.exists(recipient), "Recipient not registered.");
+        require(communities.exists(communityId), "Community does not exist.");
+
+        var community = communities[communityId];
+        require(
+            users[caller].joinedCommunity.communityId == communityId,
+            "Sender not part of the community."
+        );
+        require(
+            users[recipient].joinedCommunity.communityId == communityId,
+            "Recipient not part of the community."
+        );
+
+        var senderBalance = community.holders[caller];
+        require(senderBalance >= amount, "Insufficient token balance.");
+
+        // Perform token transfer
+        community.holders[caller] -= amount;
+        community.holders[recipient] += amount;
+        communities[communityId] = community;
+
+        log(format("Transferred {} tokens to {}.", amount, recipient));
+    }
+
+    // Add tokens to a user (only community creator)
+    public fun addTokens(communityId: Int, holder: Address, amount: Gram) {
+        require(communities.exists(communityId), "Community does not exist.");
+
+        var community = communities[communityId];
+        require(community.creator == caller, "Only the community creator can add tokens.");
+
+        community.holders[holder] += amount;
+        communities[communityId] = community;
+        log(format("Added {} tokens to user {}.", amount, holder));
+    }
+
+    // Get a user's token balance in a community
+    public fun getBalance(communityId: Int, user: Address) returns (Gram) {
+        require(communities.exists(communityId), "Community does not exist.");
+        return communities[communityId].holders[user];
+    }
+}
