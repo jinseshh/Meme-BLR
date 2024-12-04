@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract CommunityTokenContract {
+    // Community structure
+    struct Community {
+        address creator;
+        string tokenSymbol;
+        string tokenBio;
+        uint32 createdAt;
+        mapping(address => uint64) holders;
+    }
+
+    // Contract state variables
+    address public deployer;
+    mapping(uint32 => Community) public communities;
+    uint32 public nextCommunityId = 1;
+
+    // Events for logging
+    event CommunityCreated(uint32 communityId, address creator, string tokenSymbol);
+    event CommunityJoined(uint32 communityId, address member, uint64 initialTokens);
+    event TokensTransferred(uint32 communityId, address from, address to, uint64 amount);
+
+    // Constructor
+    constructor() {
+        deployer = msg.sender;
+    }
+
+    // Create a new community
+    function createCommunity(string memory tokenSymbol, string memory tokenBio) external {
+        Community storage newCommunity = communities[nextCommunityId];
+        newCommunity.creator = msg.sender;
+        newCommunity.tokenSymbol = tokenSymbol;
+        newCommunity.tokenBio = tokenBio;
+        newCommunity.createdAt = uint32(block.timestamp);
+
+        emit CommunityCreated(nextCommunityId, msg.sender, tokenSymbol);
+        nextCommunityId++;
+    }
+
+    // Join a community with tier-based token allocation
+    function joinCommunity(uint32 communityId, uint8 tier) external {
+        require(communities[communityId].creator != address(0), "Community does not exist");
+        require(tier > 0 && tier <= 4, "Invalid tier");
+
+        uint64 initialTokens = getTierTokens(tier);
+        Community storage community = communities[communityId];
+        community.holders[msg.sender] = initialTokens;
+
+        emit CommunityJoined(communityId, msg.sender, initialTokens);
+    }
+
+    // Determine initial token allocation based on tier
+    function getTierTokens(uint8 tier) internal pure returns (uint64) {
+        if (tier == 1) return 100;
+        if (tier == 2) return 250;
+        if (tier == 3) return 500;
+        if (tier == 4) return 1000;
+        return 0;
+    }
+
+    // Transfer tokens within a community
+    function transferTokens(uint32 communityId, address recipient, uint64 amount) external {
+        require(communities[communityId].creator != address(0), "Community does not exist");
+        
+        Community storage community = communities[communityId];
+        require(community.holders[msg.sender] >= amount, "Insufficient balance");
+
+        community.holders[msg.sender] -= amount;
+        community.holders[recipient] += amount;
+
+        emit TokensTransferred(communityId, msg.sender, recipient, amount);
+    }
+
+    // Get community details
+    function getCommunity(uint32 communityId) external view returns (
+        address creator, 
+        string memory tokenSymbol, 
+        string memory tokenBio, 
+        uint32 createdAt
+    ) {
+        Community storage community = communities[communityId];
+        return (
+            community.creator,
+            community.tokenSymbol,
+            community.tokenBio,
+            community.createdAt
+        );
+    }
+
+    // Get token balance
+    function getBalance(uint32 communityId, address holder) external view returns (uint64) {
+        return communities[communityId].holders[holder];
+    }
+}
